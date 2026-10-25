@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Transformer Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=Source+Sans+3:wght@400;600;700&display=swap">
+<style>
+/* Layout: one lab bench. Controls on the left, live circuit and waveforms on the right, readings log underneath. */
+:root{
+  --bg:#f3f5f9; --panel:#ffffff; --panel-2:#eaeef6; --ink:#17203a; --ink-2:#56607a; --line:#d3d8e2;
+  --accent:#2c4a86; --accent-ink:#ffffff; --pri:#2c4a86; --sec:#c2571a; --core:#cdd5e3; --core-line:#8e9ab3;
+  --good:#1f7a4d; --warn:#a15c00; --bad:#b3261e;
+  --font-display:"Libre Caslon Text",Georgia,serif; --font-ui:"Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif; --font-num:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1424; --panel:#161e33; --panel-2:#1d2744; --ink:#e6eaf5; --ink-2:#9aa6c4; --line:#2a3556;
+  --accent:#7ea0e6; --accent-ink:#0e1424; --pri:#7ea0e6; --sec:#f08a4b; --core:#2b3858; --core-line:#5b6a90;
+  --good:#5fd39a; --warn:#f0b24a; --bad:#ff8a80; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0e1424; --panel:#161e33; --panel-2:#1d2744; --ink:#e6eaf5; --ink-2:#9aa6c4; --line:#2a3556;
+  --accent:#7ea0e6; --accent-ink:#0e1424; --pri:#7ea0e6; --sec:#f08a4b; --core:#2b3858; --core-line:#5b6a90;
+  --good:#5fd39a; --warn:#f0b24a; --bad:#ff8a80; color-scheme:dark;}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{color-scheme:light}
+body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:16px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;border-bottom:2px solid var(--accent);padding-bottom:12px}
+h1{font-family:var(--font-display);font-size:clamp(1.5rem,3.6vw,2.1rem);line-height:1.15;margin:0;color:var(--accent);text-wrap:balance}
+.badge{font-weight:700;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px;border-radius:999px;border:1.5px solid currentColor}
+.badge.up{color:var(--sec)} .badge.down{color:var(--pri)} .badge.eq{color:var(--ink-2)}
+
+.bench{display:grid;grid-template-columns:minmax(260px,330px) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:820px){.bench{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+.panel h2{font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);margin:0 0 12px;font-weight:700}
+.controls{display:flex;flex-direction:column;gap:16px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font-weight:600;font-size:.95rem}
+.ctl label small{font-weight:400;color:var(--ink-2)}
+.ctl .row{display:grid;grid-template-columns:minmax(0,1fr) 84px;gap:10px;align-items:center;margin-top:4px}
+input[type=range]{width:100%;accent-color:var(--accent);min-width:0}
+input[type=number]{width:100%;font-family:var(--font-num);font-size:.95rem;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.presets{display:flex;flex-wrap:wrap;gap:8px}
+button{font-family:var(--font-ui);font-size:.9rem;font-weight:600;padding:8px 12px;border-radius:6px;border:1.5px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer}
+button:hover{background:var(--panel-2)}
+button.primary{background:var(--accent);color:var(--accent-ink)}
+button.primary:hover{filter:brightness(1.1);background:var(--accent)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:.9rem;color:var(--ink-2)}
+.check input{margin-top:4px;accent-color:var(--accent)}
+
+.stage{display:flex;flex-direction:column;gap:16px;min-width:0}
+svg{display:block;width:100%;height:auto}
+.t{fill:var(--ink);font-family:var(--font-ui)} .t2{fill:var(--ink-2);font-family:var(--font-ui)} .num{font-family:var(--font-num);font-weight:600}
+
+.readouts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.ro.wide{grid-column:span 2}
+@media (max-width:560px){.readouts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.ro{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.ro .k{font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);font-weight:700}
+.ro .v{font-family:var(--font-num);font-weight:600;font-size:1.45rem;line-height:1.25;font-variant-numeric:tabular-nums}
+.ro .u{font-size:.85rem;color:var(--ink-2);font-family:var(--font-ui);font-weight:400;margin-left:4px}
+.ro.pri .v{color:var(--pri)} .ro.sec .v{color:var(--sec)}
+.note{font-size:.9rem;color:var(--ink-2);margin:0}
+.note.warn{color:var(--warn);font-weight:600}
+.eq{font-family:var(--font-display);font-style:italic;background:var(--panel-2);border-radius:8px;padding:10px 14px;text-align:center;font-size:1.05rem}
+
+.log{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:900px){.log{grid-template-columns:minmax(0,1fr)}}
+.tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.tab{border-radius:999px;padding:6px 14px;font-size:.88rem}
+.tab[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;min-width:560px;font-variant-numeric:tabular-nums}
+th{background:var(--accent);color:var(--accent-ink);font-size:.78rem;letter-spacing:.04em;padding:8px;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+td{padding:7px 8px;border-top:1px solid var(--line);text-align:right;font-family:var(--font-num);font-size:.92rem}
+td.x{width:34px;text-align:center;padding:2px}
+td .tag{font-family:var(--font-ui);font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warn);border:1px solid var(--warn);border-radius:4px;padding:0 4px;margin-left:6px}
+tr.empty td{text-align:center;color:var(--ink-2);font-family:var(--font-ui);padding:18px}
+.del{border:none;padding:2px 8px;color:var(--ink-2);font-size:1.1rem;line-height:1}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center}
+.status{font-size:.88rem;color:var(--ink-2)}
+.cap{font-size:.88rem;color:var(--ink-2);margin:8px 0 0;font-style:italic}
+.banner{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:var(--panel-2);border-radius:8px;padding:8px 12px;font-size:.9rem;margin-bottom:12px}
+footer.credits{border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:2px;font-size:.9rem;color:var(--ink-2)}
+footer.credits strong{color:var(--ink);font-weight:600}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Step-Up and Step-Down Transformer Bench</h1>
+    </div>
+    <span id="badge" class="badge up">Step-up</span>
+  </header>
+
+  <div class="bench">
+    <section class="panel controls" aria-label="Controls">
+      <h2>Bench settings</h2>
+      <div class="ctl"><label for="vp">Primary voltage <small>Vp, volts AC (50 Hz)</small></label>
+        <div class="row"><input id="vp_r" type="range" min="1" max="24" step="0.5" aria-label="Primary voltage slider"><input id="vp" type="number" min="1" max="24" step="0.5"></div></div>
+      <div class="ctl"><label for="np">Primary turns <small>Np</small></label>
+        <div class="row"><input id="np_r" type="range" min="10" max="500" step="10" aria-label="Primary turns slider"><input id="np" type="number" min="10" max="500" step="10"></div></div>
+      <div class="ctl"><label for="ns">Secondary turns <small>Ns</small></label>
+        <div class="row"><input id="ns_r" type="range" min="10" max="500" step="10" aria-label="Secondary turns slider"><input id="ns" type="number" min="10" max="500" step="10"></div></div>
+      <div class="ctl"><label for="rl">Load resistance <small>R, ohms</small></label>
+        <div class="row"><input id="rl_r" type="range" min="5" max="500" step="5" aria-label="Load resistance slider"><input id="rl" type="number" min="5" max="500" step="5"></div></div>
+      <div class="ctl"><label for="ls">Real-world losses <small>0 is an ideal transformer</small></label>
+        <div class="row"><input id="ls_r" type="range" min="0" max="10" step="0.5" aria-label="Losses slider"><input id="ls" type="number" min="0" max="10" step="0.5"></div></div>
+      <label class="check"><input id="noise" type="checkbox"><span>Add about 1% meter error to recorded readings, like a real lab.</span></label>
+      <div>
+        <h2 style="margin-top:4px">Quick setups</h2>
+        <div class="presets">
+          <button type="button" data-p="up">Step-up 1 : 2</button>
+          <button type="button" data-p="down">Step-down 2 : 1</button>
+          <button type="button" data-p="eq">1 : 1</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="stage">
+      <section class="panel" aria-label="Circuit">
+        <h2>Circuit</h2>
+        <svg id="circuit" viewBox="0 0 680 300" role="img" aria-label="Transformer with primary coil on the left, secondary coil on the right, and a load resistor"></svg>
+        <svg id="waves" viewBox="0 0 680 130" role="img" aria-label="Primary and secondary voltage waveforms drawn to the same scale" style="margin-top:8px"></svg>
+        <p class="note" id="scaleNote"></p>
+      </section>
+
+      <section class="readouts" aria-live="polite" aria-label="Readings">
+        <div class="ro pri"><div class="k">Vp</div><div class="v"><span id="o_vp">0</span><span class="u">V</span></div></div>
+        <div class="ro pri"><div class="k">Ip</div><div class="v"><span id="o_ip">0</span><span class="u">A</span></div></div>
+        <div class="ro sec"><div class="k">Vs</div><div class="v"><span id="o_vs">0</span><span class="u">V</span></div></div>
+        <div class="ro sec"><div class="k">Is</div><div class="v"><span id="o_is">0</span><span class="u">A</span></div></div>
+        <div class="ro"><div class="k">Vs / Vp</div><div class="v"><span id="o_rv">0</span></div></div>
+        <div class="ro"><div class="k">Ns / Np</div><div class="v"><span id="o_rn">0</span></div></div>
+        <div class="ro wide"><div class="k">Efficiency</div><div class="v"><span id="o_eta">0</span><span class="u">%</span></div></div>
+      </section>
+      <p id="warn" class="note warn" hidden>Output above 36 V is not safe for a school lab. Lower Vp or the turns ratio.</p>
+      <div class="eq">η = (Vs × Is) / (Vp × Ip) × 100%</div>
+    </div>
+  </div>
+
+  <section class="log" aria-label="Readings log">
+    <div class="panel" style="min-width:0">
+      <h2>Readings log</h2>
+      <div id="banner" class="banner" hidden>
+        <span>The rows marked EXAMPLE are sample readings so you can see how the table fills. Remove them before you copy your own.</span>
+        <button type="button" id="clearEx">Remove examples</button>
+      </div>
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab" role="tab" id="tab_up" aria-selected="true" data-t="up">Step-up (Table 5)</button>
+        <button type="button" class="tab" role="tab" id="tab_down" aria-selected="false" data-t="down">Step-down (Table 6)</button>
+      </div>
+      <div class="tablewrap"><table aria-label="Recorded readings">
+        <thead><tr><th>No.</th><th>Vp (V)</th><th>Ip (A)</th><th>Vs (V)</th><th>Is (A)</th><th>Vs / Vp</th><th>Ns / Np</th><th>η (%)</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+      <div class="actions">
+        <button type="button" class="primary" id="rec">Record reading</button>
+        <button type="button" id="copy">Copy table</button>
+        <button type="button" id="clear">Clear this table</button>
+        <span class="status" id="status" role="status"></span>
+      </div>
+    </div>
+    <div class="panel" style="min-width:0">
+      <h2>Vs / Vp against Ns / Np</h2>
+      <svg id="graph" viewBox="0 0 360 320" role="img" aria-label="Scatter plot of measured voltage ratio against turns ratio with the ideal line"></svg>
+      <p class="cap">Points close to the dashed line confirm Vs / Vp = Ns / Np.</p>
+    </div>
+  </section>
+
+  <footer class="credits">
+    <span>Physics Investigatory Project, 2026 to 2027</span>
+    <span>Made by <strong>Omkar Nitin Lalla</strong>, Class XII-A</span>
+    <span>Guided by <strong>Ms. Vandana Sharma</strong></span>
+    <span>Built with the help of Claude, an AI assistant from Anthropic.</span>
+  </footer>
+</div>
+
+<script>
+(function(){
+  var NS='http://www.w3.org/2000/svg';
+  var $=function(id){return document.getElementById(id)};
+  var S={vp:12,np:100,ns:200,rl:50,ls:3,noise:false};
+  var rows=[],tab='up',nextId=1,clearArm=false;
+  var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- physics ---------- */
+  function calc(s){
+    var ratio=s.ns/s.np, leak=0.006*s.ls;
+    var es=s.vp*ratio*(1-leak);
+    var rs=0.15*s.ls;
+    var is=es/(s.rl+rs), vs=is*s.rl;
+    var pout=vs*is, pcu=is*is*rs, pcore=s.vp*s.vp*s.ls/4000;
+    var pin=pout+pcu+pcore, ip=pin/s.vp;
+    return {vs:vs,is:is,ip:ip,pin:pin,pout:pout,eta:pout/pin*100,rv:vs/s.vp,rn:ratio};
+  }
+  function kind(s){return s.ns>s.np?'up':(s.ns<s.np?'down':'eq')}
+  var f=function(x,d){return Number(x).toFixed(d)};
+
+  /* ---------- schematic ---------- */
+  var circuit=$('circuit'), waves=$('waves');
+  function el(tag,attrs,parent){var e=document.createElementNS(NS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e}
+  var dots=[], priPath, secPath, vpTxt, vsTxt, rlTxt, npTxt, nsTxt, wp, ws, wAxis, coilG;
+  var CX1=222, CX2=458;   // limb centres
+  function buildCircuit(){
+    circuit.innerHTML='';
+    var g=el('g',{},circuit);
+    el('rect',{x:182,y:40,width:316,height:210,rx:6,fill:'var(--core)',stroke:'var(--core-line)','stroke-width':2},g);
+    el('rect',{x:262,y:90,width:156,height:110,fill:'var(--panel)',stroke:'var(--core-line)','stroke-width':2},g);
+    var lc=el('text',{x:340,y:150,'text-anchor':'middle','font-size':13,class:'t2'},g);lc.textContent='Laminated iron core';
+    var fl=el('text',{x:340,y:170,'text-anchor':'middle','font-size':12,class:'t2'},g);fl.textContent='flux Φ';
+    coilG=el('g',{},circuit);
+    // flux dots follow the centre line of the core
+    dots=[];var dg=el('g',{},circuit);
+    for(var i=0;i<18;i++){dots.push(el('circle',{r:4,fill:'var(--accent)',opacity:.7},dg))}
+    // leads and load
+    var lead={stroke:'var(--ink)','stroke-width':2,fill:'none'};
+    el('path',Object.assign({d:'M 40 95 H 150 V 70 H 222 M 40 205 H 150 V 220 H 222'},lead),circuit);
+    el('path',Object.assign({d:'M 458 70 H 540 V 105 M 458 220 H 540 V 195'},lead),circuit);
+    el('path',Object.assign({d:'M 540 105 V 120 l 10 8 l -20 12 l 20 12 l -20 12 l 20 12 l -10 8 V 195'},lead),circuit);
+    el('circle',{cx:40,cy:95,r:5,fill:'var(--pri)'},circuit);el('circle',{cx:40,cy:205,r:5,fill:'var(--pri)'},circuit);
+    var ac=el('text',{x:40,y:152,'text-anchor':'middle','font-size':26,class:'t2'},circuit);ac.textContent='~';
+    var a1=el('text',{x:40,y:76,'text-anchor':'middle','font-size':12,class:'t2'},circuit);a1.textContent='AC supply';
+    vpTxt=el('text',{x:60,y:152,'font-size':15,class:'num',fill:'var(--pri)'},circuit);
+    vsTxt=el('text',{x:560,y:156,'text-anchor':'start','font-size':15,class:'num',fill:'var(--sec)'},circuit);
+    rlTxt=el('text',{x:560,y:182,'font-size':13,class:'t2'},circuit);
+    npTxt=el('text',{x:CX1,y:28,'text-anchor':'middle','font-size':14,class:'t',fill:'var(--pri)','font-weight':700},circuit);
+    nsTxt=el('text',{x:CX2,y:28,'text-anchor':'middle','font-size':14,class:'t',fill:'var(--sec)','font-weight':700},circuit);
+    // waves
+    waves.innerHTML='';
+    el('line',{x1:40,x2:660,y1:65,y2:65,stroke:'var(--line)','stroke-width':1.5},waves);
+    wp=el('polyline',{fill:'none',stroke:'var(--pri)','stroke-width':2.5,'stroke-linejoin':'round'},waves);
+    ws=el('polyline',{fill:'none',stroke:'var(--sec)','stroke-width':2.5,'stroke-linejoin':'round'},waves);
+    var l1=el('text',{x:44,y:16,'font-size':12,class:'t',fill:'var(--pri)','font-weight':700},waves);l1.textContent='Primary';
+    var l2=el('text',{x:112,y:16,'font-size':12,class:'t',fill:'var(--sec)','font-weight':700},waves);l2.textContent='Secondary';
+    var l3=el('text',{x:660,y:16,'text-anchor':'end','font-size':11,class:'t2'},waves);l3.textContent='peak voltage, same scale for both';
+  }
+  function loops(n){return Math.round(3+11*(n-10)/490)}
+  function drawCoils(){
+    coilG.innerHTML='';
+    [[CX1,S.np,'var(--pri)'],[CX2,S.ns,'var(--sec)']].forEach(function(c){
+      var n=loops(c[1]),top=62,bot=228,step=(bot-top)/n;
+      for(var i=0;i<n;i++){
+        var y=top+step*(i+.5);
+        el('ellipse',{cx:c[0],cy:y,rx:42,ry:Math.min(8,step*.38),fill:'none',stroke:c[2],'stroke-width':3},coilG);
+      }
+    });
+    npTxt.textContent='Np = '+S.np+' turns';nsTxt.textContent='Ns = '+S.ns+' turns';
+  }
+  var PATH=[[232,65],[448,65],[448,225],[232,225]];  // rectangle centre line
+  function posOnPath(d){
+    var len=[216,160,216,160],tot=752;d=((d%tot)+tot)%tot;
+    for(var i=0;i<4;i++){
+      if(d<=len[i]){var a=PATH[i],b=PATH[(i+1)%4],t=d/len[i];return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]}
+      d-=len[i];
+    }
+    return PATH[0];
+  }
+  var phase=1.2, last=0, R=null;
+  function frame(ts){
+    if(!reduce){var dt=last?Math.min(.05,(ts-last)/1000):0;last=ts;phase+=dt*2.2*Math.PI}  // slowed 50 Hz for viewing
+    draw();
+    if(!reduce)requestAnimationFrame(frame);
+  }
+  function draw(){
+    if(!R)return;
+    var flux=Math.sin(phase), amp=70*Math.min(1,.35+S.vp/24*.65);
+    for(var i=0;i<dots.length;i++){
+      var p=posOnPath(i*(752/dots.length)+amp*flux);
+      dots[i].setAttribute('cx',p[0]);dots[i].setAttribute('cy',p[1]);
+      dots[i].setAttribute('opacity',.35+.5*Math.abs(Math.cos(phase)));
+    }
+    var pk=Math.max(S.vp,R.vs)*Math.SQRT2, sc=44/pk, ppts=[],spts=[];
+    for(var x=0;x<=620;x+=5){
+      var th=phase*-1+x/620*Math.PI*4;
+      ppts.push((40+x)+','+(65-Math.sin(th)*S.vp*Math.SQRT2*sc).toFixed(1));
+      spts.push((40+x)+','+(65-Math.sin(th)*R.vs*Math.SQRT2*sc).toFixed(1));
+    }
+    wp.setAttribute('points',ppts.join(' '));ws.setAttribute('points',spts.join(' '));
+  }
+
+  /* ---------- readouts ---------- */
+  function update(){
+    R=calc(S);var k=kind(S);
+    $('o_vp').textContent=f(S.vp,2);$('o_ip').textContent=f(R.ip,3);
+    $('o_vs').textContent=f(R.vs,2);$('o_is').textContent=f(R.is,3);
+    $('o_rv').textContent=f(R.rv,3);$('o_rn').textContent=f(R.rn,3);$('o_eta').textContent=f(R.eta,1);
+    var b=$('badge');b.className='badge '+k;b.textContent=k==='up'?'Step-up':(k==='down'?'Step-down':'1 : 1 isolation');
+    vpTxt.textContent='Vp '+f(S.vp,1)+' V';vsTxt.textContent='Vs '+f(R.vs,1)+' V';rlTxt.textContent=S.rl+' Ω';
+    $('warn').hidden=R.vs<=36;
+    $('rec').disabled=(k==='eq');
+    $('scaleNote').textContent=k==='up'?'The secondary voltage is larger and the secondary current is smaller than the primary current.':(k==='down'?'The secondary voltage is smaller and the secondary current is larger than the primary current.':'Equal turns give nearly equal voltage. Choose different turns to step up or down.');
+    drawCoils();draw();
+  }
+  function sync(id,key){
+    var r=$(id+'_r'),n=$(id);
+    function set(v){v=parseFloat(v);if(isNaN(v))return;var lo=parseFloat(r.min),hi=parseFloat(r.max);v=Math.min(hi,Math.max(lo,v));S[key]=v;r.value=v;if(document.activeElement!==n)n.value=v;update()}
+    r.addEventListener('input',function(){n.value=r.value;set(r.value)});
+    n.addEventListener('input',function(){set(n.value)});
+    n.addEventListener('change',function(){n.value=S[key]});
+    r.value=S[key];n.value=S[key];
+  }
+  function setAll(o){for(var k in o){S[k]=o[k]}['vp','np','ns','rl','ls'].forEach(function(k){$(k).value=S[k];$(k+'_r').value=S[k]});update()}
+  document.querySelectorAll('[data-p]').forEach(function(b){b.addEventListener('click',function(){
+    var p=b.getAttribute('data-p');
+    if(p==='up')setAll({np:100,ns:200});if(p==='down')setAll({np:200,ns:100});if(p==='eq')setAll({np:100,ns:100});
+    if(p!=='eq'){tab=p;renderLog()}
+  })});
+  $('noise').addEventListener('change',function(){S.noise=this.checked});
+
+  /* ---------- log ---------- */
+  function jitter(x){return S.noise?x*(1+(Math.random()-.5)*.02):x}
+  function record(){
+    var k=kind(S);if(k==='eq')return;
+    var r=calc(S);
+    var row={id:nextId++,ex:false,t:k,np:S.np,ns:S.ns,vp:+f(jitter(S.vp),2),ip:+f(jitter(r.ip),3),vs:+f(jitter(r.vs),2),is:+f(jitter(r.is),3)};
+    rows.push(row);tab=k;renderLog();save();
+    $('status').textContent='Recorded reading '+rows.filter(function(x){return x.t===k}).length+' in the '+(k==='up'?'step-up':'step-down')+' table.';
+  }
+  function rv(r){return r.vs/r.vp} function rn(r){return r.ns/r.np} function eta(r){return r.vs*r.is/(r.vp*r.ip)*100}
+  function renderLog(){
+    ['up','down'].forEach(function(t){var b=$('tab_'+t);b.setAttribute('aria-selected',t===tab?'true':'false')});
+    var list=rows.filter(function(r){return r.t===tab});
+    var tb=$('rows');tb.innerHTML='';
+    if(!list.length){var tr=document.createElement('tr');tr.className='empty';tr.innerHTML='<td colspan="9">No readings yet. Set the bench, then press Record reading.</td>';tb.appendChild(tr)}
+    list.forEach(function(r,i){
+      var tr=document.createElement('tr');
+      tr.innerHTML='<td>'+(i+1)+(r.ex?'<span class="tag">Example</span>':'')+'</td><td>'+f(r.vp,2)+'</td><td>'+f(r.ip,3)+'</td><td>'+f(r.vs,2)+'</td><td>'+f(r.is,3)+'</td><td>'+f(rv(r),3)+'</td><td>'+f(rn(r),3)+'</td><td>'+f(eta(r),1)+'</td><td class="x"><button type="button" class="del" aria-label="Delete row '+(i+1)+'" data-id="'+r.id+'">×</button></td>';
+      tb.appendChild(tr);
+    });
+    $('banner').hidden=!rows.some(function(r){return r.ex});
+    drawGraph();clearArm=false;$('clear').textContent='Clear this table';
+  }
+  function uniq(a){return a.filter(function(v,i){return a.indexOf(v)===i})}
+  $('rows').addEventListener('click',function(e){var b=e.target.closest('.del');if(!b)return;var id=+b.getAttribute('data-id');rows=rows.filter(function(r){return r.id!==id});renderLog();save()});
+  document.querySelectorAll('.tab').forEach(function(b){b.addEventListener('click',function(){tab=b.getAttribute('data-t');renderLog()})});
+  $('rec').addEventListener('click',record);
+  $('clearEx').addEventListener('click',function(){rows=rows.filter(function(r){return !r.ex});renderLog();save()});
+  $('clear').addEventListener('click',function(){
+    if(!clearArm){clearArm=true;this.textContent='Press again to clear';return}
+    rows=rows.filter(function(r){return r.t!==tab});renderLog();save();
+  });
+  $('copy').addEventListener('click',function(){
+    var list=rows.filter(function(r){return r.t===tab&&!r.ex}); if(!list.length)list=rows.filter(function(r){return r.t===tab});
+    var txt=['No.\tVp (V)\tIp (A)\tVs (V)\tIs (A)\tVs/Vp\tNs/Np\tη (%)'].concat(list.map(function(r,i){return [i+1,f(r.vp,2),f(r.ip,3),f(r.vs,2),f(r.is,3),f(rv(r),3),f(rn(r),3),f(eta(r),1)].join('\t')})).join('\n');
+    var done=function(){$('status').textContent='Copied. Paste into Word or Excel.'};
+    var fail=function(){var ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();var ok=false;try{ok=document.execCommand('copy')}catch(e){}document.body.removeChild(ta);$('status').textContent=ok?'Copied. Paste into Word or Excel.':'Copy was blocked. Select the table and copy it by hand.'};
+    try{navigator.clipboard.writeText(txt).then(done,fail)}catch(e){fail()}
+  });
+  function save(){try{localStorage.setItem('tbench-rows',JSON.stringify({rows:rows,next:nextId}))}catch(e){}}
+  function load(){try{var d=JSON.parse(localStorage.getItem('tbench-rows')||'null');if(d&&Array.isArray(d.rows)){rows=d.rows;nextId=d.next||rows.length+1;return true}}catch(e){}return false}
+  function examples(){
+    var out=[];
+    [[6,100,200,50],[9,100,200,50],[12,100,200,50],[15,100,200,50]].forEach(function(a){var s={vp:a[0],np:a[1],ns:a[2],rl:a[3],ls:3},r=calc(s);out.push({id:nextId++,ex:true,t:'up',np:s.np,ns:s.ns,vp:s.vp,ip:+f(r.ip,3),vs:+f(r.vs,2),is:+f(r.is,3)})});
+    [[12,200,100,20],[16,200,100,20],[20,200,100,20],[24,200,100,20]].forEach(function(a){var s={vp:a[0],np:a[1],ns:a[2],rl:a[3],ls:3},r=calc(s);out.push({id:nextId++,ex:true,t:'down',np:s.np,ns:s.ns,vp:s.vp,ip:+f(r.ip,3),vs:+f(r.vs,2),is:+f(r.is,3)})});
+    return out;
+  }
+
+  /* ---------- graph ---------- */
+  function drawGraph(){
+    var g=$('graph');g.innerHTML='';
+    var L=46,T=14,W=300,H=250;
+    var mx=0.5;rows.forEach(function(r){mx=Math.max(mx,rn(r),rv(r))});
+    var nice=[0.5,1,2,3,4,5,6,8,10];mx=nice.find(function(v){return v>=mx*1.05})||Math.ceil(mx);
+    var X=function(v){return L+v/mx*W},Y=function(v){return T+H-v/mx*H};
+    var ticks=5;
+    for(var i=0;i<=ticks;i++){
+      var v=mx*i/ticks;
+      el('line',{x1:L,x2:L+W,y1:Y(v),y2:Y(v),stroke:'var(--line)','stroke-width':1},g);
+      var ty=el('text',{x:L-6,y:Y(v)+4,'text-anchor':'end','font-size':11,class:'t2'},g);ty.textContent=+v.toFixed(2);
+      var tx=el('text',{x:X(v),y:T+H+16,'text-anchor':'middle','font-size':11,class:'t2'},g);tx.textContent=+v.toFixed(2);
+    }
+    el('line',{x1:L,x2:L,y1:T,y2:T+H,stroke:'var(--ink-2)','stroke-width':1.5},g);
+    el('line',{x1:L,x2:L+W,y1:T+H,y2:T+H,stroke:'var(--ink-2)','stroke-width':1.5},g);
+    el('line',{x1:X(0),y1:Y(0),x2:X(mx),y2:Y(mx),stroke:'var(--ink-2)','stroke-width':1.5,'stroke-dasharray':'6 5'},g);
+    var xl=el('text',{x:L+W/2,y:T+H+36,'text-anchor':'middle','font-size':12,class:'t'},g);xl.textContent='Ns / Np';
+    var yl=el('text',{x:12,y:T+H/2,'text-anchor':'middle','font-size':12,class:'t',transform:'rotate(-90 12 '+(T+H/2)+')'},g);yl.textContent='Vs / Vp';
+    var lgS=el('circle',{cx:L+10,cy:T+14,r:5,fill:'var(--sec)',stroke:'var(--sec)','stroke-width':2},g);var lgT=el('text',{x:L+20,y:T+18,'font-size':11,class:'t2'},g);lgT.textContent='step-up';
+    el('rect',{x:L+66,y:T+9,width:10,height:10,fill:'var(--pri)',stroke:'var(--pri)','stroke-width':2},g);var lgU=el('text',{x:L+82,y:T+18,'font-size':11,class:'t2'},g);lgU.textContent='step-down';
+    var lg=el('text',{x:L+W-4,y:T+H-8,'text-anchor':'end','font-size':11,class:'t2'},g);lg.textContent='dashed: ideal Vs / Vp = Ns / Np';
+    rows.forEach(function(r){
+      var cx=X(rn(r)),cy=Y(rv(r)),col=r.t==='up'?'var(--sec)':'var(--pri)',fill=r.ex?'var(--panel)':col;
+      if(r.t==='up')el('circle',{cx:cx,cy:cy,r:5.5,fill:fill,stroke:col,'stroke-width':2},g);
+      else el('rect',{x:cx-5,y:cy-5,width:10,height:10,fill:fill,stroke:col,'stroke-width':2},g);
+    });
+  }
+
+  /* ---------- start ---------- */
+  buildCircuit();
+  ['vp','np','ns','rl','ls'].forEach(function(k){sync(k,k)});
+  if(!load()){rows=examples();save()}
+  update();renderLog();
+  if(reduce){phase=1.2;draw()}else requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
